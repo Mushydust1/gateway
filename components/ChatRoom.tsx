@@ -8,6 +8,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Alert,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
@@ -95,10 +96,16 @@ export default function ChatRoom({
     prevMessageCountRef.current = messages.length;
   }, [messages.length]);
 
-  function handleSend() {
+  async function handleSend() {
     if (!newMessage.trim()) return;
-    onSend(newMessage.trim());
-    setNewMessage("");
+    const content = newMessage.trim();
+    setNewMessage(""); // optimistic clear
+    try {
+      await onSend(content);
+    } catch {
+      setNewMessage(content); // restore on failure
+      Alert.alert("Send failed", "Your message could not be sent. Please try again.");
+    }
   }
 
   const renderItem = useCallback(

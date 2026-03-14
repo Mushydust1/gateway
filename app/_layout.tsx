@@ -46,11 +46,16 @@ export default function RootLayout() {
 
   async function loadProfile(userId: string) {
     // Try to load existing profile first
-    const { data: existing } = await supabase
+    const { data: existing, error: fetchError } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
       .maybeSingle();
+
+    if (fetchError) {
+      console.error("Failed to load profile:", fetchError.message);
+      return;
+    }
 
     if (existing) {
       setProfile(existing);
@@ -58,11 +63,22 @@ export default function RootLayout() {
     }
 
     // No profile yet — create one
-    const { data: created } = await supabase
+    const { data: created, error: createError } = await supabase
       .from("profiles")
       .insert({ id: userId, pseudonym: generatePseudonym() })
       .select()
       .single();
+
+    if (createError) {
+      // Race condition: another call created it between SELECT and INSERT
+      const { data: retry } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+      if (retry) setProfile(retry);
+      return;
+    }
 
     if (created) setProfile(created);
   }

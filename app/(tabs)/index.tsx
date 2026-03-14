@@ -39,7 +39,7 @@ export default function MyFlightsScreen() {
     // Single query using foreign key join to avoid N+1
     const { data: memberships, error: memError } = await supabase
       .from("flight_members")
-      .select("*, flights!flight_members_flight_id_fkey(*)")
+      .select("*, flights(*)")
       .eq("user_id", session.user.id)
       .order("joined_at", { ascending: false });
 
@@ -50,7 +50,7 @@ export default function MyFlightsScreen() {
 
     // Build the list; member_count per flight from the memberships we already have
     // We still need counts, so do a single batched count query
-    const flightIds = memberships.map((m: any) => m.flight_id);
+    const flightIds = memberships.map((m) => m.flight_id);
     const { data: allMembers } = await supabase
       .from("flight_members")
       .select("flight_id")
@@ -64,7 +64,7 @@ export default function MyFlightsScreen() {
     }
 
     const flightsWithCounts: FlightWithMembership[] = memberships
-      .filter((m: any) => m.flights)
+      .filter((m) => m.flights)
       .map((m: any) => ({
         ...m.flights,
         member_count: countMap[m.flight_id] ?? 0,
@@ -86,6 +86,8 @@ export default function MyFlightsScreen() {
   }
 
   async function addFlight() {
+    if (!session) return;
+
     if (!flightNumber.trim() || !flightDate.trim()) {
       Alert.alert("Error", "Please enter flight number and date");
       return;
@@ -166,7 +168,7 @@ export default function MyFlightsScreen() {
       .from("flight_members")
       .upsert(
         {
-          user_id: session!.user.id,
+          user_id: session.user.id,
           flight_id: flightId,
           pseudonym: generatePseudonym(),
           status_tag: "none",

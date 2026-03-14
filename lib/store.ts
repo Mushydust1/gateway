@@ -27,8 +27,6 @@ interface FlightMember {
   flight_id: string;
   pseudonym: string;
   status_tag: string | null;
-  is_connecting: boolean | null;
-  connecting_flight_id: string | null;
 }
 
 interface AppState {

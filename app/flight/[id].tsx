@@ -140,7 +140,7 @@ export default function FlightRoomScreen() {
       const { error } = await supabase.from("messages").insert({
         flight_id: id,
         user_id: session.user.id,
-        pseudonym: "temp",
+        pseudonym: "temp", // overwritten by DB trigger (set_message_pseudonym)
         content,
         message_type: "chat",
       });
@@ -163,7 +163,7 @@ export default function FlightRoomScreen() {
     await supabase.from("messages").insert({
       flight_id: id,
       user_id: session.user.id,
-      pseudonym: myMembership.pseudonym,
+      pseudonym: "temp", // overwritten by DB trigger (set_message_pseudonym)
       content: `updated status to ${STATUS_TAGS.find((s) => s.key === tag)?.label}`,
       message_type: "status_update",
     });
@@ -181,17 +181,6 @@ export default function FlightRoomScreen() {
       return acc;
     },
     {} as Record<string, number>
-  );
-
-  const renderSystemMessage = useCallback(
-    (item: ChatMessage) => (
-      <View style={styles.systemMessage}>
-        <Text style={styles.systemMessageText}>
-          {item.pseudonym} {item.content}
-        </Text>
-      </View>
-    ),
-    []
   );
 
   const flightHeader = flight ? (
@@ -291,7 +280,6 @@ export default function FlightRoomScreen() {
       connected={connected}
       renderHeader={flightHeader}
       renderBeforeInput={statusButton}
-      renderSystemMessage={renderSystemMessage}
     />
   );
 }
@@ -355,15 +343,6 @@ const styles = StyleSheet.create({
   statusChipText: {
     fontSize: 11,
     fontWeight: "600",
-  },
-  systemMessage: {
-    alignItems: "center",
-    marginVertical: 4,
-  },
-  systemMessageText: {
-    fontSize: 13,
-    color: colors.slate500,
-    fontStyle: "italic",
   },
   statusButtonRow: {
     borderTopWidth: 0,

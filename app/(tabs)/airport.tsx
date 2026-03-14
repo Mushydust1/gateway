@@ -60,7 +60,7 @@ export default function AirportScreen() {
 
   function joinAirport() {
     const code = airportCode.trim().toUpperCase();
-    if (code.length < 3) return;
+    if (!/^[A-Z]{3,4}$/.test(code)) return;
     setAirportCode(code);
     setJoined(true);
     loadMessages(code);
@@ -73,7 +73,7 @@ export default function AirportScreen() {
       const { error } = await supabase.from("airport_messages").insert({
         airport_code: airportCode,
         user_id: session.user.id,
-        pseudonym: "temp",
+        pseudonym: "temp", // overwritten by DB trigger (set_airport_message_pseudonym)
         content,
       });
 
