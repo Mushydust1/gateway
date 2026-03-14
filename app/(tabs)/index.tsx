@@ -35,25 +35,35 @@ export default function MyFlightsScreen() {
   const loadFlights = useCallback(async () => {
     if (!session) return;
 
-    // Get user's flight memberships with flight details
-    const { data: memberships } = await supabase
+    // Get user's flight memberships
+    const { data: memberships, error: memError } = await supabase
       .from("flight_members")
-      .select("*, flights(*)")
+      .select("*")
       .eq("user_id", session.user.id)
       .order("joined_at", { ascending: false });
 
-    if (!memberships) return;
+    if (memError || !memberships || memberships.length === 0) {
+      setFlights([]);
+      return;
+    }
 
-    // Get member counts for each flight
+    // Get flight details and member counts for each membership
     const flightsWithCounts: FlightWithMembership[] = await Promise.all(
       memberships.map(async (m: any) => {
-        const { count } = await supabase
-          .from("flight_members")
-          .select("*", { count: "exact", head: true })
-          .eq("flight_id", m.flight_id);
+        const [{ data: flight }, { count }] = await Promise.all([
+          supabase
+            .from("flights")
+            .select("*")
+            .eq("id", m.flight_id)
+            .single(),
+          supabase
+            .from("flight_members")
+            .select("*", { count: "exact", head: true })
+            .eq("flight_id", m.flight_id),
+        ]);
 
         return {
-          ...m.flights,
+          ...flight,
           member_count: count ?? 0,
           my_pseudonym: m.pseudonym,
           my_status_tag: m.status_tag,
@@ -93,33 +103,56 @@ export default function MyFlightsScreen() {
     setAdding(true);
 
     // Check if flight already exists in our DB
-    let { data: existingFlight } = await supabase
+    let { data: existingFlight, error: lookupError } = await supabase
       .from("flights")
       .select("*")
       .eq("flight_number", normalized)
       .eq("flight_date", flightDate.trim())
-      .single();
+      .maybeSingle();
 
     let flightId: string;
 
     if (existingFlight) {
       flightId = existingFlight.id;
     } else {
-      // Create the flight (in production, we'd validate via FlightAware here)
+      // Validate flight via FlightAware Edge Function
+      const { data: faData, error: faError } = await supabase.functions.invoke(
+        "validate-flight",
+        { body: { flight_number: normalized, flight_date: flightDate.trim() } }
+      );
+
+      // Build flight record — use FlightAware data if available, fallback to manual entry
+      const flightRecord = {
+        flight_number: normalized,
+        flight_date: flightDate.trim(),
+        departure_airport: faData?.found ? faData.departure_airport : "TBD",
+        arrival_airport: faData?.found ? faData.arrival_airport : "TBD",
+        scheduled_departure: faData?.found ? faData.scheduled_departure : null,
+        scheduled_arrival: faData?.found ? faData.scheduled_arrival : null,
+        actual_departure: faData?.found ? faData.actual_departure : null,
+        actual_arrival: faData?.found ? faData.actual_arrival : null,
+        status: faData?.found ? faData.status : "scheduled",
+        delay_minutes: faData?.found ? faData.delay_minutes : 0,
+        gate: faData?.found ? faData.gate : null,
+        flightaware_id: faData?.found ? faData.flightaware_id : null,
+      };
+
+      // If FlightAware explicitly says not found (not just an API error), warn user
+      if (faData && !faData.found && !faError) {
+        Alert.alert(
+          "Flight Not Found",
+          "We couldn't verify this flight. It may not exist yet or the number may be wrong. Adding anyway.",
+        );
+      }
+
       const { data: newFlight, error: flightError } = await supabase
         .from("flights")
-        .insert({
-          flight_number: normalized,
-          flight_date: flightDate.trim(),
-          departure_airport: "TBD",
-          arrival_airport: "TBD",
-          status: "scheduled",
-        })
+        .insert(flightRecord)
         .select()
         .single();
 
       if (flightError || !newFlight) {
-        Alert.alert("Error", "Could not add flight. Try again.");
+        Alert.alert("Error", `Could not add flight: ${flightError?.message ?? "Unknown error"}`);
         setAdding(false);
         return;
       }
@@ -133,7 +166,7 @@ export default function MyFlightsScreen() {
       .select("id")
       .eq("user_id", session!.user.id)
       .eq("flight_id", flightId)
-      .single();
+      .maybeSingle();
 
     if (existingMember) {
       Alert.alert("Already joined", "You're already in this flight's room.");
@@ -152,7 +185,7 @@ export default function MyFlightsScreen() {
       });
 
     if (memberError) {
-      Alert.alert("Error", "Could not join flight. Try again.");
+      Alert.alert("Error", `Could not join flight: ${memberError.message}`);
       setAdding(false);
       return;
     }
