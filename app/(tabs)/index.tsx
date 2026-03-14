@@ -15,6 +15,7 @@ import { supabase } from "../../lib/supabase";
 import { useStore, type Flight } from "../../lib/store";
 import { generatePseudonym } from "../../lib/pseudonyms";
 import { formatDistanceToNow } from "date-fns";
+import { colors } from "../../lib/theme";
 
 interface FlightWithMembership extends Flight {
   member_count: number;
@@ -35,10 +36,10 @@ export default function MyFlightsScreen() {
   const loadFlights = useCallback(async () => {
     if (!session) return;
 
-    // Get user's flight memberships
+    // Single query using foreign key join to avoid N+1
     const { data: memberships, error: memError } = await supabase
       .from("flight_members")
-      .select("*")
+      .select("*, flights(*)")
       .eq("user_id", session.user.id)
       .order("joined_at", { ascending: false });
 
@@ -47,29 +48,29 @@ export default function MyFlightsScreen() {
       return;
     }
 
-    // Get flight details and member counts for each membership
-    const flightsWithCounts: FlightWithMembership[] = await Promise.all(
-      memberships.map(async (m: any) => {
-        const [{ data: flight }, { count }] = await Promise.all([
-          supabase
-            .from("flights")
-            .select("*")
-            .eq("id", m.flight_id)
-            .single(),
-          supabase
-            .from("flight_members")
-            .select("*", { count: "exact", head: true })
-            .eq("flight_id", m.flight_id),
-        ]);
+    // Build the list; member_count per flight from the memberships we already have
+    // We still need counts, so do a single batched count query
+    const flightIds = memberships.map((m: any) => m.flight_id);
+    const { data: allMembers } = await supabase
+      .from("flight_members")
+      .select("flight_id")
+      .in("flight_id", flightIds);
 
-        return {
-          ...flight,
-          member_count: count ?? 0,
-          my_pseudonym: m.pseudonym,
-          my_status_tag: m.status_tag,
-        };
-      })
-    );
+    const countMap: Record<string, number> = {};
+    if (allMembers) {
+      for (const m of allMembers) {
+        countMap[m.flight_id] = (countMap[m.flight_id] || 0) + 1;
+      }
+    }
+
+    const flightsWithCounts: FlightWithMembership[] = memberships
+      .filter((m: any) => m.flights)
+      .map((m: any) => ({
+        ...m.flights,
+        member_count: countMap[m.flight_id] ?? 0,
+        my_pseudonym: m.pseudonym,
+        my_status_tag: m.status_tag,
+      }));
 
     setFlights(flightsWithCounts);
   }, [session]);
@@ -201,17 +202,17 @@ export default function MyFlightsScreen() {
     switch (status) {
       case "on_time":
       case "scheduled":
-        return "#22C55E";
+        return colors.green500;
       case "delayed":
-        return "#F59E0B";
+        return colors.amber500;
       case "cancelled":
-        return "#EF4444";
+        return colors.red500;
       case "in_air":
-        return "#3B82F6";
+        return colors.blue500;
       case "landed":
-        return "#8B5CF6";
+        return colors.violet500;
       default:
-        return "#64748B";
+        return colors.slate500;
     }
   }
 
@@ -255,7 +256,7 @@ export default function MyFlightsScreen() {
 
         <View style={styles.cardFooter}>
           <Text style={styles.date}>{item.flight_date}</Text>
-          {item.delay_minutes > 0 && (
+          {(item.delay_minutes ?? 0) > 0 && (
             <Text style={styles.delay}>+{item.delay_minutes} min</Text>
           )}
           <Text style={styles.memberCount}>
@@ -282,7 +283,7 @@ export default function MyFlightsScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#3B82F6"
+            tintColor={colors.blue500}
           />
         }
         ListEmptyComponent={
@@ -323,7 +324,7 @@ export default function MyFlightsScreen() {
             <TextInput
               style={styles.modalInput}
               placeholder="e.g., UA1234"
-              placeholderTextColor="#64748B"
+              placeholderTextColor={colors.slate500}
               value={flightNumber}
               onChangeText={setFlightNumber}
               autoCapitalize="characters"
@@ -334,7 +335,7 @@ export default function MyFlightsScreen() {
             <TextInput
               style={styles.modalInput}
               placeholder="YYYY-MM-DD"
-              placeholderTextColor="#64748B"
+              placeholderTextColor={colors.slate500}
               value={flightDate}
               onChangeText={setFlightDate}
               keyboardType="numbers-and-punctuation"
@@ -364,19 +365,19 @@ export default function MyFlightsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: colors.slate900,
   },
   list: {
     padding: 16,
     paddingBottom: 100,
   },
   card: {
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     borderRadius: 16,
     padding: 20,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
   },
   cardHeader: {
     flexDirection: "row",
@@ -387,7 +388,7 @@ const styles = StyleSheet.create({
   flightNumber: {
     fontSize: 24,
     fontWeight: "800",
-    color: "#F8FAFC",
+    color: colors.slate50,
     letterSpacing: 1,
   },
   statusBadge: {
@@ -417,11 +418,11 @@ const styles = StyleSheet.create({
   airport: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#CBD5E1",
+    color: colors.slate300,
   },
   routeArrow: {
     fontSize: 18,
-    color: "#475569",
+    color: colors.slate600,
   },
   cardFooter: {
     flexDirection: "row",
@@ -430,16 +431,16 @@ const styles = StyleSheet.create({
   },
   date: {
     fontSize: 14,
-    color: "#64748B",
+    color: colors.slate500,
   },
   delay: {
     fontSize: 14,
-    color: "#F59E0B",
+    color: colors.amber500,
     fontWeight: "600",
   },
   memberCount: {
     fontSize: 14,
-    color: "#3B82F6",
+    color: colors.blue500,
     fontWeight: "500",
     marginLeft: "auto",
   },
@@ -448,15 +449,15 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#334155",
+    borderTopColor: colors.slate700,
   },
   pseudonymLabel: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.slate500,
   },
   pseudonymValue: {
     fontSize: 13,
-    color: "#94A3B8",
+    color: colors.slate400,
     fontWeight: "600",
   },
   empty: {
@@ -470,12 +471,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#F8FAFC",
+    color: colors.slate50,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 15,
-    color: "#64748B",
+    color: colors.slate500,
     textAlign: "center",
     paddingHorizontal: 40,
   },
@@ -484,19 +485,19 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 16,
     right: 16,
-    backgroundColor: "#3B82F6",
+    backgroundColor: colors.blue500,
     borderRadius: 14,
     padding: 16,
     alignItems: "center",
   },
   addButtonText: {
-    color: "#FFFFFF",
+    color: colors.white,
     fontSize: 17,
     fontWeight: "700",
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: colors.slate900,
   },
   modalHeader: {
     flexDirection: "row",
@@ -504,14 +505,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#334155",
+    borderBottomColor: colors.slate700,
   },
   modalCancel: {
-    color: "#3B82F6",
+    color: colors.blue500,
     fontSize: 16,
   },
   modalTitle: {
-    color: "#F8FAFC",
+    color: colors.slate50,
     fontSize: 18,
     fontWeight: "700",
   },
@@ -520,22 +521,22 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   inputLabel: {
-    color: "#94A3B8",
+    color: colors.slate400,
     fontSize: 14,
     fontWeight: "600",
     marginTop: 8,
   },
   modalInput: {
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     borderRadius: 12,
     padding: 16,
     fontSize: 18,
-    color: "#F8FAFC",
+    color: colors.slate50,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
   },
   modalButton: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: colors.blue500,
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
@@ -545,12 +546,12 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   modalButtonText: {
-    color: "#FFFFFF",
+    color: colors.white,
     fontSize: 17,
     fontWeight: "700",
   },
   modalHint: {
-    color: "#64748B",
+    color: colors.slate500,
     fontSize: 13,
     textAlign: "center",
     marginTop: 16,

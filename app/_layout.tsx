@@ -5,6 +5,7 @@ import { View, ActivityIndicator } from "react-native";
 import { supabase } from "../lib/supabase";
 import { useStore } from "../lib/store";
 import { generatePseudonym } from "../lib/pseudonyms";
+import { colors } from "../lib/theme";
 
 export default function RootLayout() {
   const { session, setSession, setProfile } = useStore();
@@ -44,24 +45,14 @@ export default function RootLayout() {
   }, [session, segments, loading]);
 
   async function loadProfile(userId: string) {
+    const pseudonym = generatePseudonym();
     const { data } = await supabase
       .from("profiles")
-      .select("*")
-      .eq("id", userId)
+      .upsert({ id: userId, pseudonym }, { onConflict: "id", ignoreDuplicates: true })
+      .select()
       .single();
 
-    if (data) {
-      setProfile(data);
-    } else {
-      // Profile doesn't exist yet — create one
-      const pseudonym = generatePseudonym();
-      const { data: newProfile } = await supabase
-        .from("profiles")
-        .insert({ id: userId, pseudonym })
-        .select()
-        .single();
-      if (newProfile) setProfile(newProfile);
-    }
+    if (data) setProfile(data);
   }
 
   if (loading) {
@@ -71,10 +62,10 @@ export default function RootLayout() {
           flex: 1,
           justifyContent: "center",
           alignItems: "center",
-          backgroundColor: "#0F172A",
+          backgroundColor: colors.slate900,
         }}
       >
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color={colors.blue500} />
       </View>
     );
   }
@@ -85,7 +76,7 @@ export default function RootLayout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: "#0F172A" },
+          contentStyle: { backgroundColor: colors.slate900 },
         }}
       >
         <Stack.Screen name="auth" />
@@ -94,8 +85,8 @@ export default function RootLayout() {
           name="flight/[id]"
           options={{
             headerShown: true,
-            headerStyle: { backgroundColor: "#1E293B" },
-            headerTintColor: "#F8FAFC",
+            headerStyle: { backgroundColor: colors.slate800 },
+            headerTintColor: colors.slate50,
             headerTitle: "Flight Room",
             presentation: "card",
           }}

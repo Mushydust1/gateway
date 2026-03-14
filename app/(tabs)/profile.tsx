@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { supabase } from "../../lib/supabase";
 import { useStore } from "../../lib/store";
+import { colors } from "../../lib/theme";
 
 export default function ProfileScreen() {
   const { profile } = useStore();
@@ -30,16 +31,16 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: colors.slate900,
     padding: 16,
   },
   card: {
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     borderRadius: 16,
     padding: 32,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
   },
   avatarPlaceholder: {
     fontSize: 64,
@@ -48,31 +49,31 @@ const styles = StyleSheet.create({
   pseudonym: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#F8FAFC",
+    color: colors.slate50,
     marginBottom: 4,
   },
   label: {
     fontSize: 14,
-    color: "#64748B",
+    color: colors.slate500,
     marginBottom: 12,
   },
   hint: {
     fontSize: 13,
-    color: "#475569",
+    color: colors.slate600,
     textAlign: "center",
     lineHeight: 18,
   },
   signOutButton: {
     marginTop: 24,
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
   },
   signOutText: {
-    color: "#EF4444",
+    color: colors.red500,
     fontSize: 16,
     fontWeight: "600",
   },

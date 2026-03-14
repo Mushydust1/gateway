@@ -3,7 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 
 interface Profile {
   id: string;
-  pseudonym: string;
+  pseudonym: string | null;
 }
 
 interface Flight {
@@ -17,7 +17,7 @@ interface Flight {
   actual_departure: string | null;
   actual_arrival: string | null;
   status: string;
-  delay_minutes: number;
+  delay_minutes: number | null;
   gate: string | null;
 }
 
@@ -26,27 +26,23 @@ interface FlightMember {
   user_id: string;
   flight_id: string;
   pseudonym: string;
-  status_tag: string;
-  is_connecting: boolean;
+  status_tag: string | null;
+  is_connecting: boolean | null;
   connecting_flight_id: string | null;
 }
 
 interface AppState {
   session: Session | null;
   profile: Profile | null;
-  myFlights: Flight[];
   setSession: (session: Session | null) => void;
   setProfile: (profile: Profile | null) => void;
-  setMyFlights: (flights: Flight[]) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
   session: null,
   profile: null,
-  myFlights: [],
   setSession: (session) => set({ session }),
   setProfile: (profile) => set({ profile }),
-  setMyFlights: (flights) => set({ myFlights: flights }),
 }));
 
 export type { Flight, FlightMember, Profile };

@@ -1,35 +1,22 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
-  FlatList,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
 } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { useStore, type Flight, type FlightMember } from "../../lib/store";
-import { formatDistanceToNow } from "date-fns";
-
-interface Message {
-  id: string;
-  flight_id: string;
-  user_id: string;
-  pseudonym: string;
-  content: string;
-  message_type: string;
-  created_at: string;
-}
+import ChatRoom, { type ChatMessage } from "../../components/ChatRoom";
+import { colors } from "../../lib/theme";
 
 const STATUS_TAGS = [
-  { key: "at_gate", label: "At Gate", color: "#22C55E" },
-  { key: "on_plane", label: "On Plane", color: "#3B82F6" },
-  { key: "in_security", label: "In Security", color: "#F59E0B" },
-  { key: "delayed", label: "Delayed", color: "#EF4444" },
-  { key: "rebooking", label: "Rebooking", color: "#A855F7" },
+  { key: "at_gate", label: "At Gate", color: colors.green500 },
+  { key: "on_plane", label: "On Plane", color: colors.blue500 },
+  { key: "in_security", label: "In Security", color: colors.amber500 },
+  { key: "delayed", label: "Delayed", color: colors.red500 },
+  { key: "rebooking", label: "Rebooking", color: colors.purple500 },
 ];
 
 export default function FlightRoomScreen() {
@@ -39,16 +26,14 @@ export default function FlightRoomScreen() {
 
   const [flight, setFlight] = useState<Flight | null>(null);
   const [members, setMembers] = useState<FlightMember[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [myMembership, setMyMembership] = useState<FlightMember | null>(null);
-  const [newMessage, setNewMessage] = useState("");
   const [showStatusPicker, setShowStatusPicker] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
+  const [connected, setConnected] = useState(true);
 
   const loadRoom = useCallback(async () => {
     if (!id || !session) return;
 
-    // Load flight details
     const { data: flightData } = await supabase
       .from("flights")
       .select("*")
@@ -62,7 +47,6 @@ export default function FlightRoomScreen() {
       });
     }
 
-    // Load members
     const { data: memberData } = await supabase
       .from("flight_members")
       .select("*")
@@ -74,7 +58,6 @@ export default function FlightRoomScreen() {
       if (me) setMyMembership(me);
     }
 
-    // Load messages
     const { data: messageData } = await supabase
       .from("messages")
       .select("*")
@@ -104,10 +87,15 @@ export default function FlightRoomScreen() {
           filter: `flight_id=eq.${id}`,
         },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new as Message]);
+          setMessages((prev) => {
+            const next = [...prev, payload.new as ChatMessage];
+            return next.length > 300 ? next.slice(-300) : next;
+          });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        setConnected(status === "SUBSCRIBED");
+      });
 
     const membersChannel = supabase
       .channel(`flight-members-${id}`)
@@ -119,15 +107,22 @@ export default function FlightRoomScreen() {
           table: "flight_members",
           filter: `flight_id=eq.${id}`,
         },
-        () => {
-          // Reload members on any change
-          supabase
-            .from("flight_members")
-            .select("*")
-            .eq("flight_id", id)
-            .then(({ data }) => {
-              if (data) setMembers(data);
-            });
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setMembers((prev) => [...prev, payload.new as FlightMember]);
+          } else if (payload.eventType === "UPDATE") {
+            setMembers((prev) =>
+              prev.map((m) =>
+                m.id === (payload.new as FlightMember).id
+                  ? (payload.new as FlightMember)
+                  : m
+              )
+            );
+          } else if (payload.eventType === "DELETE") {
+            setMembers((prev) =>
+              prev.filter((m) => m.id !== (payload.old as { id: string }).id)
+            );
+          }
         }
       )
       .subscribe();
@@ -138,19 +133,20 @@ export default function FlightRoomScreen() {
     };
   }, [id]);
 
-  async function sendMessage() {
-    if (!newMessage.trim() || !session || !myMembership) return;
+  const handleSend = useCallback(
+    async (content: string) => {
+      if (!session || !myMembership) return;
 
-    const { error } = await supabase.from("messages").insert({
-      flight_id: id,
-      user_id: session.user.id,
-      pseudonym: myMembership.pseudonym,
-      content: newMessage.trim(),
-      message_type: "chat",
-    });
-
-    if (!error) setNewMessage("");
-  }
+      await supabase.from("messages").insert({
+        flight_id: id,
+        user_id: session.user.id,
+        pseudonym: myMembership.pseudonym,
+        content,
+        message_type: "chat",
+      });
+    },
+    [id, session, myMembership]
+  );
 
   async function updateStatusTag(tag: string) {
     if (!myMembership || !session) return;
@@ -160,7 +156,6 @@ export default function FlightRoomScreen() {
       .update({ status_tag: tag })
       .eq("id", myMembership.id);
 
-    // Also send a system message
     await supabase.from("messages").insert({
       flight_id: id,
       user_id: session.user.id,
@@ -184,170 +179,125 @@ export default function FlightRoomScreen() {
     {} as Record<string, number>
   );
 
-  return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={100}
-    >
-      {/* Flight info bar */}
-      {flight && (
-        <View style={styles.flightBar}>
-          <View style={styles.flightBarRow}>
-            <Text style={styles.flightBarRoute}>
-              {flight.departure_airport} → {flight.arrival_airport}
-            </Text>
-            {flight.gate && (
-              <Text style={styles.flightBarGate}>Gate {flight.gate}</Text>
-            )}
-          </View>
-          <View style={styles.flightBarRow}>
-            <Text style={styles.flightBarStatus}>
-              {flight.status.replace("_", " ").toUpperCase()}
-            </Text>
-            {flight.delay_minutes > 0 && (
-              <Text style={styles.flightBarDelay}>
-                +{flight.delay_minutes} min delay
-              </Text>
-            )}
-            <Text style={styles.flightBarMembers}>
-              {members.length} travelers
-            </Text>
-          </View>
+  const renderSystemMessage = useCallback(
+    (item: ChatMessage) => (
+      <View style={styles.systemMessage}>
+        <Text style={styles.systemMessageText}>
+          {item.pseudonym} {item.content}
+        </Text>
+      </View>
+    ),
+    []
+  );
 
-          {/* Status tags summary */}
-          {Object.keys(statusCounts).length > 0 && (
-            <View style={styles.statusSummary}>
-              {STATUS_TAGS.filter((s) => statusCounts[s.key]).map((s) => (
-                <View
-                  key={s.key}
-                  style={[styles.statusChip, { backgroundColor: s.color + "20" }]}
-                >
-                  <View
-                    style={[styles.statusChipDot, { backgroundColor: s.color }]}
-                  />
-                  <Text style={[styles.statusChipText, { color: s.color }]}>
-                    {statusCounts[s.key]} {s.label}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
+  const flightHeader = flight ? (
+    <View style={styles.flightBar}>
+      <View style={styles.flightBarRow}>
+        <Text style={styles.flightBarRoute}>
+          {flight.departure_airport} → {flight.arrival_airport}
+        </Text>
+        {flight.gate && (
+          <Text style={styles.flightBarGate}>Gate {flight.gate}</Text>
+        )}
+      </View>
+      <View style={styles.flightBarRow}>
+        <Text style={styles.flightBarStatus}>
+          {flight.status.replace("_", " ").toUpperCase()}
+        </Text>
+        {(flight.delay_minutes ?? 0) > 0 && (
+          <Text style={styles.flightBarDelay}>
+            +{flight.delay_minutes} min delay
+          </Text>
+        )}
+        <Text style={styles.flightBarMembers}>
+          {members.length} travelers
+        </Text>
+      </View>
 
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messageList}
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: true })
-        }
-        renderItem={({ item }) => {
-          const isMe = item.user_id === session?.user.id;
-          const isSystem = item.message_type === "status_update";
-
-          if (isSystem) {
-            return (
-              <View style={styles.systemMessage}>
-                <Text style={styles.systemMessageText}>
-                  {item.pseudonym} {item.content}
-                </Text>
-              </View>
-            );
-          }
-
-          return (
+      {Object.keys(statusCounts).length > 0 && (
+        <View style={styles.statusSummary}>
+          {STATUS_TAGS.filter((s) => statusCounts[s.key]).map((s) => (
             <View
-              style={[styles.messageBubble, isMe && styles.myMessageBubble]}
-            >
-              <Text style={styles.messagePseudonym}>{item.pseudonym}</Text>
-              <Text style={styles.messageContent}>{item.content}</Text>
-              <Text style={styles.messageTime}>
-                {formatDistanceToNow(new Date(item.created_at), {
-                  addSuffix: true,
-                })}
-              </Text>
-            </View>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyChat}>
-            <Text style={styles.emptyChatTitle}>You're the first one here!</Text>
-            <Text style={styles.emptyChatText}>
-              Messages from other passengers on this flight will appear here.
-            </Text>
-          </View>
-        }
-      />
-
-      {/* Status picker */}
-      {showStatusPicker && (
-        <View style={styles.statusPicker}>
-          {STATUS_TAGS.map((tag) => (
-            <TouchableOpacity
-              key={tag.key}
-              style={[
-                styles.statusOption,
-                myMembership?.status_tag === tag.key && {
-                  backgroundColor: tag.color + "20",
-                  borderColor: tag.color,
-                },
-              ]}
-              onPress={() => updateStatusTag(tag.key)}
+              key={s.key}
+              style={[styles.statusChip, { backgroundColor: s.color + "20" }]}
             >
               <View
-                style={[styles.statusOptionDot, { backgroundColor: tag.color }]}
+                style={[styles.statusChipDot, { backgroundColor: s.color }]}
               />
-              <Text style={[styles.statusOptionText, { color: tag.color }]}>
-                {tag.label}
+              <Text style={[styles.statusChipText, { color: s.color }]}>
+                {statusCounts[s.key]} {s.label}
               </Text>
-            </TouchableOpacity>
+            </View>
           ))}
         </View>
       )}
+    </View>
+  ) : null;
 
-      {/* Input bar */}
-      <View style={styles.inputBar}>
+  const statusPickerUI = showStatusPicker ? (
+    <View style={styles.statusPicker}>
+      {STATUS_TAGS.map((tag) => (
         <TouchableOpacity
-          style={styles.statusButton}
-          onPress={() => setShowStatusPicker(!showStatusPicker)}
+          key={tag.key}
+          style={[
+            styles.statusOption,
+            myMembership?.status_tag === tag.key && {
+              backgroundColor: tag.color + "20",
+              borderColor: tag.color,
+            },
+          ]}
+          onPress={() => updateStatusTag(tag.key)}
         >
-          <Text style={styles.statusButtonText}>
-            {myMembership?.status_tag && myMembership.status_tag !== "none"
-              ? STATUS_TAGS.find((s) => s.key === myMembership.status_tag)
-                  ?.label ?? "📍"
-              : "📍"}
+          <View
+            style={[styles.statusOptionDot, { backgroundColor: tag.color }]}
+          />
+          <Text style={[styles.statusOptionText, { color: tag.color }]}>
+            {tag.label}
           </Text>
         </TouchableOpacity>
-        <TextInput
-          style={styles.messageInput}
-          placeholder="Message your flight..."
-          placeholderTextColor="#64748B"
-          value={newMessage}
-          onChangeText={setNewMessage}
-          multiline
-        />
-        <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-          <Text style={styles.sendButtonText}>↑</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      ))}
+    </View>
+  ) : null;
+
+  const statusButton = (
+    <View style={styles.statusButtonRow}>
+      <TouchableOpacity
+        style={styles.statusButton}
+        onPress={() => setShowStatusPicker(!showStatusPicker)}
+      >
+        <Text style={styles.statusButtonText}>
+          {myMembership?.status_tag && myMembership.status_tag !== "none"
+            ? STATUS_TAGS.find((s) => s.key === myMembership.status_tag)
+                ?.label ?? "📍"
+            : "📍"}
+        </Text>
+      </TouchableOpacity>
+      {statusPickerUI}
+    </View>
+  );
+
+  return (
+    <ChatRoom
+      messages={messages}
+      currentUserId={session?.user.id ?? ""}
+      onSend={handleSend}
+      placeholder="Message your flight..."
+      emptyTitle="You're the first one here!"
+      emptyText="Messages from other passengers on this flight will appear here."
+      connected={connected}
+      renderHeader={flightHeader}
+      renderBeforeInput={statusButton}
+      renderSystemMessage={renderSystemMessage}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0F172A",
-  },
   flightBar: {
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#334155",
+    borderBottomColor: colors.slate700,
   },
   flightBarRow: {
     flexDirection: "row",
@@ -358,26 +308,26 @@ const styles = StyleSheet.create({
   flightBarRoute: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#F8FAFC",
+    color: colors.slate50,
   },
   flightBarGate: {
     fontSize: 14,
-    color: "#3B82F6",
+    color: colors.blue500,
     fontWeight: "600",
   },
   flightBarStatus: {
     fontSize: 13,
-    color: "#94A3B8",
+    color: colors.slate400,
     fontWeight: "600",
   },
   flightBarDelay: {
     fontSize: 13,
-    color: "#F59E0B",
+    color: colors.amber500,
     fontWeight: "600",
   },
   flightBarMembers: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.slate500,
   },
   statusSummary: {
     flexDirection: "row",
@@ -402,64 +352,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
-  messageList: {
-    padding: 16,
-    paddingBottom: 8,
-  },
-  messageBubble: {
-    backgroundColor: "#1E293B",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-    maxWidth: "85%",
-    alignSelf: "flex-start",
-  },
-  myMessageBubble: {
-    backgroundColor: "#1E3A5F",
-    alignSelf: "flex-end",
-  },
-  messagePseudonym: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#3B82F6",
-    marginBottom: 4,
-  },
-  messageContent: {
-    fontSize: 15,
-    color: "#F8FAFC",
-    lineHeight: 20,
-  },
-  messageTime: {
-    fontSize: 11,
-    color: "#475569",
-    marginTop: 4,
-    textAlign: "right",
-  },
   systemMessage: {
     alignItems: "center",
     marginVertical: 4,
   },
   systemMessageText: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.slate500,
     fontStyle: "italic",
   },
-  emptyChat: {
-    alignItems: "center",
-    paddingTop: 60,
-    paddingHorizontal: 32,
-  },
-  emptyChatTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#F8FAFC",
-    marginBottom: 8,
-  },
-  emptyChatText: {
-    fontSize: 14,
-    color: "#64748B",
-    textAlign: "center",
-    lineHeight: 20,
+  statusButtonRow: {
+    borderTopWidth: 0,
   },
   statusPicker: {
     flexDirection: "row",
@@ -467,8 +370,8 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
     borderTopWidth: 1,
-    borderTopColor: "#334155",
-    backgroundColor: "#1E293B",
+    borderTopColor: colors.slate700,
+    backgroundColor: colors.slate800,
   },
   statusOption: {
     flexDirection: "row",
@@ -477,7 +380,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
     gap: 6,
   },
   statusOptionDot: {
@@ -489,49 +392,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  inputBar: {
-    flexDirection: "row",
-    padding: 12,
-    paddingBottom: 24,
-    borderTopWidth: 1,
-    borderTopColor: "#334155",
-    gap: 8,
-    alignItems: "flex-end",
-  },
   statusButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
+    marginLeft: 12,
+    marginBottom: 4,
   },
   statusButtonText: {
     fontSize: 16,
-  },
-  messageInput: {
-    flex: 1,
-    backgroundColor: "#1E293B",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: "#F8FAFC",
-    maxHeight: 100,
-  },
-  sendButton: {
-    backgroundColor: "#3B82F6",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendButtonText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
   },
 });

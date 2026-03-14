@@ -1,34 +1,22 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 import { useStore } from "../../lib/store";
-import { formatDistanceToNow } from "date-fns";
-
-interface AirportMessage {
-  id: string;
-  airport_code: string;
-  user_id: string;
-  pseudonym: string;
-  content: string;
-  created_at: string;
-}
+import ChatRoom, { type ChatMessage } from "../../components/ChatRoom";
+import { colors } from "../../lib/theme";
 
 export default function AirportScreen() {
   const { session, profile } = useStore();
   const [airportCode, setAirportCode] = useState("");
   const [joined, setJoined] = useState(false);
-  const [messages, setMessages] = useState<AirportMessage[]>([]);
-  const [newMessage, setNewMessage] = useState("");
-  const flatListRef = useRef<FlatList>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [connected, setConnected] = useState(true);
 
   const loadMessages = useCallback(async (code: string) => {
     const { data } = await supabase
@@ -44,7 +32,6 @@ export default function AirportScreen() {
   useEffect(() => {
     if (!joined || !airportCode) return;
 
-    // Subscribe to new messages
     const channel = supabase
       .channel(`airport-${airportCode}`)
       .on(
@@ -56,10 +43,15 @@ export default function AirportScreen() {
           filter: `airport_code=eq.${airportCode}`,
         },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new as AirportMessage]);
+          setMessages((prev) => {
+            const next = [...prev, payload.new as ChatMessage];
+            return next.length > 300 ? next.slice(-300) : next;
+          });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        setConnected(status === "SUBSCRIBED");
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -74,18 +66,19 @@ export default function AirportScreen() {
     loadMessages(code);
   }
 
-  async function sendMessage() {
-    if (!newMessage.trim() || !session || !profile) return;
+  const handleSend = useCallback(
+    async (content: string) => {
+      if (!session || !profile) return;
 
-    const { error } = await supabase.from("airport_messages").insert({
-      airport_code: airportCode,
-      user_id: session.user.id,
-      pseudonym: profile.pseudonym,
-      content: newMessage.trim(),
-    });
-
-    if (!error) setNewMessage("");
-  }
+      await supabase.from("airport_messages").insert({
+        airport_code: airportCode,
+        user_id: session.user.id,
+        pseudonym: profile.pseudonym ?? "Anonymous",
+        content,
+      });
+    },
+    [session, profile, airportCode]
+  );
 
   if (!joined) {
     return (
@@ -99,7 +92,7 @@ export default function AirportScreen() {
           <TextInput
             style={styles.airportInput}
             placeholder="Airport code (e.g., CLE)"
-            placeholderTextColor="#64748B"
+            placeholderTextColor={colors.slate500}
             value={airportCode}
             onChangeText={setAirportCode}
             autoCapitalize="characters"
@@ -113,73 +106,33 @@ export default function AirportScreen() {
     );
   }
 
+  const header = (
+    <View style={styles.roomHeader}>
+      <Text style={styles.roomTitle}>{airportCode} General Chat</Text>
+      <TouchableOpacity onPress={() => setJoined(false)}>
+        <Text style={styles.leaveText}>Leave</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={90}
-    >
-      <View style={styles.roomHeader}>
-        <Text style={styles.roomTitle}>{airportCode} General Chat</Text>
-        <TouchableOpacity onPress={() => setJoined(false)}>
-          <Text style={styles.leaveText}>Leave</Text>
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messageList}
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: true })
-        }
-        renderItem={({ item }) => {
-          const isMe = item.user_id === session?.user.id;
-          return (
-            <View
-              style={[styles.messageBubble, isMe && styles.myMessageBubble]}
-            >
-              <Text style={styles.messagePseudonym}>{item.pseudonym}</Text>
-              <Text style={styles.messageContent}>{item.content}</Text>
-              <Text style={styles.messageTime}>
-                {formatDistanceToNow(new Date(item.created_at), {
-                  addSuffix: true,
-                })}
-              </Text>
-            </View>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyChat}>
-            <Text style={styles.emptyChatText}>
-              No messages yet. Be the first to say hi!
-            </Text>
-          </View>
-        }
-      />
-
-      <View style={styles.inputBar}>
-        <TextInput
-          style={styles.messageInput}
-          placeholder="Message..."
-          placeholderTextColor="#64748B"
-          value={newMessage}
-          onChangeText={setNewMessage}
-          multiline
-        />
-        <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-          <Text style={styles.sendButtonText}>↑</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+    <ChatRoom
+      messages={messages}
+      currentUserId={session?.user.id ?? ""}
+      onSend={handleSend}
+      placeholder="Message..."
+      emptyTitle="No messages yet"
+      emptyText="Be the first to say hi!"
+      connected={connected}
+      renderHeader={header}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: colors.slate900,
   },
   joinContainer: {
     flex: 1,
@@ -194,31 +147,31 @@ const styles = StyleSheet.create({
   joinTitle: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#F8FAFC",
+    color: colors.slate50,
     marginBottom: 8,
   },
   joinSubtitle: {
     fontSize: 15,
-    color: "#94A3B8",
+    color: colors.slate400,
     textAlign: "center",
     marginBottom: 32,
     lineHeight: 22,
   },
   airportInput: {
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     borderRadius: 12,
     padding: 16,
     fontSize: 24,
-    color: "#F8FAFC",
+    color: colors.slate50,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
     textAlign: "center",
     width: "100%",
     letterSpacing: 4,
     fontWeight: "700",
   },
   joinButton: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: colors.blue500,
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
@@ -226,7 +179,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   joinButtonText: {
-    color: "#FFFFFF",
+    color: colors.white,
     fontSize: 17,
     fontWeight: "700",
   },
@@ -236,89 +189,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#334155",
+    borderBottomColor: colors.slate700,
   },
   roomTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#F8FAFC",
+    color: colors.slate50,
   },
   leaveText: {
-    color: "#EF4444",
+    color: colors.red500,
     fontSize: 14,
     fontWeight: "600",
-  },
-  messageList: {
-    padding: 16,
-    paddingBottom: 8,
-  },
-  messageBubble: {
-    backgroundColor: "#1E293B",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-    maxWidth: "85%",
-    alignSelf: "flex-start",
-  },
-  myMessageBubble: {
-    backgroundColor: "#1E3A5F",
-    alignSelf: "flex-end",
-  },
-  messagePseudonym: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#3B82F6",
-    marginBottom: 4,
-  },
-  messageContent: {
-    fontSize: 15,
-    color: "#F8FAFC",
-    lineHeight: 20,
-  },
-  messageTime: {
-    fontSize: 11,
-    color: "#475569",
-    marginTop: 4,
-    textAlign: "right",
-  },
-  emptyChat: {
-    alignItems: "center",
-    paddingTop: 60,
-  },
-  emptyChatText: {
-    color: "#64748B",
-    fontSize: 15,
-  },
-  inputBar: {
-    flexDirection: "row",
-    padding: 12,
-    paddingBottom: 24,
-    borderTopWidth: 1,
-    borderTopColor: "#334155",
-    gap: 8,
-    alignItems: "flex-end",
-  },
-  messageInput: {
-    flex: 1,
-    backgroundColor: "#1E293B",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: "#F8FAFC",
-    maxHeight: 100,
-  },
-  sendButton: {
-    backgroundColor: "#3B82F6",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendButtonText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
   },
 });

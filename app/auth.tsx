@@ -10,7 +10,7 @@ import {
   Alert,
 } from "react-native";
 import { supabase } from "../lib/supabase";
-import { generatePseudonym } from "../lib/pseudonyms";
+import { colors } from "../lib/theme";
 
 export default function AuthScreen() {
   const [email, setEmail] = useState("");
@@ -27,15 +27,9 @@ export default function AuthScreen() {
     setLoading(true);
 
     if (isSignUp) {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { error } = await supabase.auth.signUp({ email, password });
       if (error) {
         Alert.alert("Sign Up Error", error.message);
-      } else if (data.user) {
-        // Create profile with pseudonym
-        await supabase.from("profiles").insert({
-          id: data.user.id,
-          pseudonym: generatePseudonym(),
-        });
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({
@@ -65,7 +59,7 @@ export default function AuthScreen() {
           <TextInput
             style={styles.input}
             placeholder="Email"
-            placeholderTextColor="#64748B"
+            placeholderTextColor={colors.slate500}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -74,7 +68,7 @@ export default function AuthScreen() {
           <TextInput
             style={styles.input}
             placeholder="Password"
-            placeholderTextColor="#64748B"
+            placeholderTextColor={colors.slate500}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -109,7 +103,7 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: colors.slate900,
   },
   content: {
     flex: 1,
@@ -119,13 +113,13 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 48,
     fontWeight: "800",
-    color: "#F8FAFC",
+    color: colors.slate50,
     textAlign: "center",
     letterSpacing: -1,
   },
   tagline: {
     fontSize: 16,
-    color: "#94A3B8",
+    color: colors.slate400,
     textAlign: "center",
     marginTop: 8,
     marginBottom: 48,
@@ -134,16 +128,16 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   input: {
-    backgroundColor: "#1E293B",
+    backgroundColor: colors.slate800,
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    color: "#F8FAFC",
+    color: colors.slate50,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: colors.slate700,
   },
   button: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: colors.blue500,
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
@@ -153,7 +147,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
-    color: "#FFFFFF",
+    color: colors.white,
     fontSize: 18,
     fontWeight: "700",
   },
@@ -162,7 +156,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   switchText: {
-    color: "#60A5FA",
+    color: colors.blue400,
     fontSize: 14,
   },
 });

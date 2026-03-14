@@ -47,5 +47,5 @@ const nouns = [
 export function generatePseudonym(): string {
   const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  return `${adj}_${noun}`;
+  return `${adj}_${noun}_${Math.floor(Math.random() * 900) + 100}`;
 }
