@@ -70,12 +70,16 @@ export default function AirportScreen() {
     async (content: string) => {
       if (!session || !profile) return;
 
-      await supabase.from("airport_messages").insert({
+      const { error } = await supabase.from("airport_messages").insert({
         airport_code: airportCode,
         user_id: session.user.id,
-        pseudonym: profile.pseudonym ?? "Anonymous",
+        pseudonym: "temp",
         content,
       });
+
+      if (error) {
+        console.error("Airport send error:", error.message);
+      }
     },
     [session, profile, airportCode]
   );

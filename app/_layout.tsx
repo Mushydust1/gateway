@@ -45,14 +45,26 @@ export default function RootLayout() {
   }, [session, segments, loading]);
 
   async function loadProfile(userId: string) {
-    const pseudonym = generatePseudonym();
-    const { data } = await supabase
+    // Try to load existing profile first
+    const { data: existing } = await supabase
       .from("profiles")
-      .upsert({ id: userId, pseudonym }, { onConflict: "id", ignoreDuplicates: true })
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (existing) {
+      setProfile(existing);
+      return;
+    }
+
+    // No profile yet — create one
+    const { data: created } = await supabase
+      .from("profiles")
+      .insert({ id: userId, pseudonym: generatePseudonym() })
       .select()
       .single();
 
-    if (data) setProfile(data);
+    if (created) setProfile(created);
   }
 
   if (loading) {

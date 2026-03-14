@@ -26,7 +26,7 @@ export interface ChatMessage {
 interface ChatRoomProps {
   messages: ChatMessage[];
   currentUserId: string;
-  onSend: (content: string) => void;
+  onSend: (content: string) => void | Promise<void>;
   placeholder: string;
   emptyTitle: string;
   emptyText: string;

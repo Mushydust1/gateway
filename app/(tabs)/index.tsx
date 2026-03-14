@@ -39,7 +39,7 @@ export default function MyFlightsScreen() {
     // Single query using foreign key join to avoid N+1
     const { data: memberships, error: memError } = await supabase
       .from("flight_members")
-      .select("*, flights(*)")
+      .select("*, flights!flight_members_flight_id_fkey(*)")
       .eq("user_id", session.user.id)
       .order("joined_at", { ascending: false });
 
@@ -161,29 +161,18 @@ export default function MyFlightsScreen() {
       flightId = newFlight.id;
     }
 
-    // Check if already a member
-    const { data: existingMember } = await supabase
-      .from("flight_members")
-      .select("id")
-      .eq("user_id", session!.user.id)
-      .eq("flight_id", flightId)
-      .maybeSingle();
-
-    if (existingMember) {
-      Alert.alert("Already joined", "You're already in this flight's room.");
-      setAdding(false);
-      return;
-    }
-
-    // Join the flight
+    // Join the flight (upsert to handle duplicates gracefully)
     const { error: memberError } = await supabase
       .from("flight_members")
-      .insert({
-        user_id: session!.user.id,
-        flight_id: flightId,
-        pseudonym: generatePseudonym(),
-        status_tag: "none",
-      });
+      .upsert(
+        {
+          user_id: session!.user.id,
+          flight_id: flightId,
+          pseudonym: generatePseudonym(),
+          status_tag: "none",
+        },
+        { onConflict: "user_id,flight_id", ignoreDuplicates: true }
+      );
 
     if (memberError) {
       Alert.alert("Error", `Could not join flight: ${memberError.message}`);

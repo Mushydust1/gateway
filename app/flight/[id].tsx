@@ -137,13 +137,17 @@ export default function FlightRoomScreen() {
     async (content: string) => {
       if (!session || !myMembership) return;
 
-      await supabase.from("messages").insert({
+      const { error } = await supabase.from("messages").insert({
         flight_id: id,
         user_id: session.user.id,
-        pseudonym: myMembership.pseudonym,
+        pseudonym: "temp",
         content,
         message_type: "chat",
       });
+
+      if (error) {
+        console.error("Flight send error:", error.message);
+      }
     },
     [id, session, myMembership]
   );
